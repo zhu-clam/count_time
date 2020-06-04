@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <sys/types.h>
@@ -60,8 +61,11 @@ void read_file0(void *data_ptr)
 		if(file_buf == '1')
 		{ 
 			ret = write(es_fd,&file_init,sizeof(file_init));
+			#ifndef WITH_ATOMIC
 			FLAG_RD2++;
-			
+			#else			
+			__sync_add_and_fetch(&FLAG_RD2, 1);
+			#endif			
 			/*step4. when file_buf is '3' ,set FLAG_WR3 */
 			while(1)
 			{
@@ -71,7 +75,11 @@ void read_file0(void *data_ptr)
 				
 				if(file_buf == '3' )
 				{
+					#ifndef WITH_ATOMIC
 					FLAG_WR3++;
+					#else			
+					__sync_add_and_fetch(&FLAG_WR3, 1);
+					#endif						
 					close(es_fd);
 					return ;//exit(0)
 				}				
@@ -109,7 +117,11 @@ void read_file1(void *data_ptr)
 		if(file_buf == '1')
 		{ 
 			ret = write(es_fd,&file_init,sizeof(file_init));
+			#ifndef WITH_ATOMIC
 			FLAG_RD2++;
+			#else		
+			__sync_add_and_fetch(&FLAG_RD2, 1);
+			#endif	
 			
 			/*step4. when file_buf is '3' ,set FLAG_WR3 */
 			while(1)
@@ -120,7 +132,11 @@ void read_file1(void *data_ptr)
 				
 				if(file_buf == '3' )
 				{
+					#ifndef WITH_ATOMIC
 					FLAG_WR3++;
+					#else			
+					__sync_add_and_fetch(&FLAG_WR3, 1);
+					#endif
 					close(es_fd);
 					return ;//exit(0)
 				}				
@@ -156,7 +172,11 @@ void read_file2(void *data_ptr)
 		if(file_buf == '1')
 		{ 
 			ret = write(es_fd,&file_init,sizeof(file_init));
+			#ifndef WITH_ATOMIC
 			FLAG_RD2++;
+			#else			
+			__sync_add_and_fetch(&FLAG_RD2, 1);//
+			#endif	
 			
 			/*step4. when file_buf is '3' ,set FLAG_WR3 */
 			while(1)
@@ -167,7 +187,11 @@ void read_file2(void *data_ptr)
 				
 				if(file_buf == '3' )
 				{
+					#ifndef WITH_ATOMIC
 					FLAG_WR3++;
+					#else			
+					__sync_add_and_fetch(&FLAG_WR3, 1);
+					#endif
 					close(es_fd);
 					return ;//exit(0)
 				}				
@@ -203,7 +227,11 @@ void read_file3(void *data_ptr)
 		if(file_buf == '1')
 		{ 
 			ret = write(es_fd,&file_init,sizeof(file_init));
+			#ifndef WITH_ATOMIC
 			FLAG_RD2++;
+			#else			
+			__sync_add_and_fetch(&FLAG_RD2, 1);
+			#endif	
 			
 			/*step4. when file_buf is '3' ,set FLAG_WR3 */
 			while(1)
@@ -214,7 +242,11 @@ void read_file3(void *data_ptr)
 				
 				if(file_buf == '3' )
 				{
+					#ifndef WITH_ATOMIC
 					FLAG_WR3++;
+					#else			
+					__sync_add_and_fetch(&FLAG_WR3, 1);
+					#endif
 					close(es_fd);
 					return ;//exit(0)
 				}				
@@ -227,9 +259,23 @@ void read_file3(void *data_ptr)
 
 
 
+//statistic boya algorithm spend time for run program.
+/*
+* 方案一、 使用标志位的方式,来通知主线程开始计时.
+*          当读取文件值为1时,给标志位+1.标志位等于4时,满足条件.则开始计时
+* 
+* Advantage & disadvantage
+* 优点: 思路清晰,编码简单,容易实现.
+* 缺点: 在多线程编程中,没有对标志位 FLAG_RD2 保护,不能确保对其原子操作.
+* 换言之, 在多线程时,由于程序运行中变量缓存机制.FLAG_RD2 的值并非实时的,同一时间对 FLAG_RD2++的操作,
+* 原本为(FLAG_RD2+2) 但结果却是(FLAG_RD2+1)的错误可能.
+*
+* 改进方案、 对标志位进行原子操作,即多线程编程中,对共享代码段互斥执行.
+* 1. Linux 用户层多线程无锁化原子操作; 实现多线程共享区互斥
 
-
-//statistic boya algorithm time
+* 2. Linux 用户层多线程 加锁互斥.
+* 将多线程无锁化原子函数 vs 普通线程锁 效率和用法usage 进行对比.
+*/
 int main(int argc, char** argv)
 {
 
@@ -249,7 +295,7 @@ int main(int argc, char** argv)
 		{
 			
 			/*starting count time*/
-			printf("cstarting count time\n ");
+			printf("starting count time\n ");
 			gettimeofday(&t_start, NULL);
 			while(1) {
 				if (FLAG_WR3 == 4) 
@@ -258,7 +304,12 @@ int main(int argc, char** argv)
 					gettimeofday(&t_end, NULL);
 					duration_ms=(t_end.tv_sec - t_start.tv_sec)*1000+(t_end.tv_usec - t_start.tv_usec)/1000;
 					printf("finish count duration_ms=%.2f[ms]\n",duration_ms);
-					return;
+					pthread_join(read_file0_p, NULL);
+					pthread_join(read_file1_p, NULL);
+					pthread_join(read_file2_p, NULL);
+					pthread_join(read_file3_p, NULL);
+					exit(0);
+					//return;
 				}
 			}	
 		}
